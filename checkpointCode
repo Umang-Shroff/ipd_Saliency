@@ -1,0 +1,146 @@
+import os
+import numpy as np
+import pickle
+from tensorflow.keras.preprocessing.image import ImageDataGenerator, load_img, img_to_array
+from tensorflow.keras.applications import ResNet50
+from tensorflow.keras.applications.resnet50 import preprocess_input, decode_predictions
+
+# Initialize the model
+model = ResNet50(weights='imagenet')
+
+# Directory paths
+val_dir = '/content/tiny-imagenet-200/tiny-imagenet-200/val/images'
+annotations_file = '/content/tiny-imagenet-200/tiny-imagenet-200/val/val_annotations.txt'
+
+# Load the annotations (image filenames and corresponding class labels)
+with open(annotations_file, 'r') as f:
+    lines = f.readlines()
+
+# Create a dictionary for image filename to class label mapping
+image_to_class = {}
+for line in lines:
+    parts = line.strip().split('\t')
+    image_name, class_id = parts[0], parts[1]
+    image_to_class[image_name] = class_id
+
+# Function to load checkpoint data (if exists)
+def load_checkpoint(checkpoint_path):
+    if os.path.exists(checkpoint_path):
+        with open(checkpoint_path, 'rb') as f:
+            checkpoint = pickle.load(f)
+        return checkpoint
+    return None
+
+# Function to save checkpoint data
+def save_checkpoint(checkpoint_path, checkpoint_data):
+    with open(checkpoint_path, 'wb') as f:
+        pickle.dump(checkpoint_data, f)
+
+# Function to map ImageNet predictions to Tiny ImageNet class IDs
+def map_imagenet_to_tinyimagenet(imagenet_label, imagenet_to_tinyimagenet):
+    return imagenet_to_tinyimagenet.get(imagenet_label, None)  # Return None if not found
+
+# Example of an ImageNet to Tiny ImageNet mapping (extend this dictionary as needed)
+imagenet_to_tinyimagenet = {
+    'Kerry_blue_terrier': 'n01629819',
+    'solar_dish': 'n02917067',
+    'pomegranate': 'n07768694',
+    'pitcher': 'n02909870',
+    # Add more mappings as necessary
+}
+
+# Function to process images in batches and calculate accuracy
+def process_batch(batch_images, batch_labels, model, checkpoint_path, batch_size):
+    images = []
+    labels = []
+    for image_name in batch_images:
+        # Load and preprocess the image
+        img_path = os.path.join(val_dir, image_name)
+        img = load_img(img_path, target_size=(224, 224))
+        img_array = img_to_array(img)
+        img_array = np.expand_dims(img_array, axis=0)  # Add batch dimension
+        img_array = preprocess_input(img_array)  # Preprocess for ResNet50
+        
+        images.append(img_array)
+        true_label = batch_labels[image_name]
+        labels.append(true_label)
+    
+    images = np.vstack(images)
+    
+    # Perform predictions with ResNet50 model
+    predictions = model.predict(images)
+    
+    # Decode predictions into human-readable labels
+    decoded_predictions = decode_predictions(predictions, top=1)
+    
+    correct = 0
+    for i, pred in enumerate(decoded_predictions):
+        true_label = labels[i]
+        predicted_label = pred[0][1]  # Top-1 prediction label (string)
+        
+        # Map the ImageNet predicted label to the Tiny ImageNet class ID
+        mapped_predicted_label = map_imagenet_to_tinyimagenet(predicted_label, imagenet_to_tinyimagenet)
+
+        # Compare the mapped predicted label with the true label
+        if mapped_predicted_label == true_label:
+            correct += 1
+    
+    accuracy = correct / len(batch_images)
+    
+    # Save checkpoint after each batch
+    checkpoint_data = {
+        'last_processed_image': batch_images[-1],
+        'accuracy': accuracy
+    }
+    save_checkpoint(checkpoint_path, checkpoint_data)
+    
+    return accuracy, checkpoint_data
+
+
+# Wrapper function to process images in batches with checkpoints
+def process_images_in_batches(batch_size=50, checkpoint_path="checkpoint.pkl"):
+    # Load checkpoint data if available
+    checkpoint_data = load_checkpoint(checkpoint_path)
+    
+    # Initialize variables
+    current_image_index = 0
+    if checkpoint_data is not None:
+        # Resume from the last processed image
+        last_processed_image = checkpoint_data['last_processed_image']
+        current_image_index = image_names.index(last_processed_image) + 1
+        print(f"Resuming from image: {last_processed_image}")
+    else:
+        print("Starting from the beginning...")
+    
+    # Get list of image filenames (subset if needed)
+    image_names = os.listdir(val_dir)
+    
+    # Process images in batches
+    total_correct = 0
+    total_images_processed = 0
+    while current_image_index < len(image_names):
+        # Get the current batch of images
+        batch_images = image_names[current_image_index: current_image_index + batch_size]
+        
+        # Get the corresponding true labels
+        batch_labels = {image_name: image_to_class[image_name] for image_name in batch_images}
+        
+        # Process this batch and calculate accuracy
+        batch_accuracy, checkpoint_data = process_batch(batch_images, batch_labels, model, checkpoint_path, batch_size)
+        
+        # Update the running accuracy and processed images count
+        total_correct += batch_accuracy * len(batch_images)
+        total_images_processed += len(batch_images)
+        
+        # Print progress
+        print(f"Processed {total_images_processed} images, Current Batch Accuracy: {batch_accuracy * 100:.2f}%")
+        
+        # Update current image index for next batch
+        current_image_index += batch_size
+
+    # Final accuracy
+    final_accuracy = total_correct / total_images_processed
+    print(f"Final Accuracy: {final_accuracy * 100:.2f}%")
+
+# Run the batch processing with checkpointing
+process_images_in_batches(batch_size=50, checkpoint_path="checkpoint.pkl")
