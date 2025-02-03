@@ -1,0 +1,74 @@
+import os
+import pickle
+
+# Function to load checkpoint data (if exists)
+def load_checkpoint(checkpoint_path):
+    if os.path.exists(checkpoint_path):
+        with open(checkpoint_path, 'rb') as f:
+            checkpoint = pickle.load(f)
+        return checkpoint
+    return None
+
+# Function to save checkpoint data
+def save_checkpoint(checkpoint_path, checkpoint_data):
+    with open(checkpoint_path, 'wb') as f:
+        pickle.dump(checkpoint_data, f)
+
+# Wrapper function to process images in batches with checkpoints
+def process_images_in_batches(batch_size=50, checkpoint_path="checkpoint.pkl"):
+    # Load checkpoint data if available
+    checkpoint_data = load_checkpoint(checkpoint_path)
+    
+    # Initialize variables
+    current_image_index = 0
+    if checkpoint_data is not None:
+        # Resume from the last processed image
+        last_processed_image = checkpoint_data['last_processed_image']
+        current_image_index = checkpoint_data['last_image_index'] + 1
+        print(f"Resuming from image: {last_processed_image}")
+    else:
+        print("Starting from the beginning...")
+    
+    # Get list of image filenames (subset if needed)
+    image_names = []  # Fill in with your list of images, e.g., os.listdir(val_dir)
+    
+    # Process images in batches
+    total_correct = 0
+    total_images_processed = 0
+    while current_image_index < len(image_names):
+        # Get the current batch of images
+        batch_images = image_names[current_image_index: current_image_index + batch_size]
+        
+        # Get the corresponding true labels (you need to define how to get labels)
+        batch_labels = {}  # Fill in with your method to get labels for the batch
+        
+        # Placeholder for model processing, accuracy calculation, etc.
+        # You can add your model loading, image preprocessing, predictions, and accuracy calculation here
+        
+        # Example placeholder: (Add your own logic here)
+        batch_accuracy = 0.0  # Replace with your code that computes batch accuracy
+        
+        # Save checkpoint after each batch
+        checkpoint_data = {
+            'last_processed_image': batch_images[-1],
+            'last_image_index': current_image_index + len(batch_images) - 1,
+            'accuracy': batch_accuracy
+        }
+        save_checkpoint(checkpoint_path, checkpoint_data)
+        
+        # Update the running accuracy and processed images count
+        total_correct += batch_accuracy * len(batch_images)
+        total_images_processed += len(batch_images)
+        
+        # Print progress (you can customize this)
+        print(f"Processed {total_images_processed} images, Current Batch Accuracy: {batch_accuracy * 100:.2f}%")
+        
+        # Update current image index for next batch
+        current_image_index += batch_size
+
+    # Final accuracy (compute the total accuracy after processing all batches)
+    final_accuracy = total_correct / total_images_processed
+    print(f"Final Accuracy: {final_accuracy * 100:.2f}%")
+
+# Call the function to run the batch processing with checkpointing
+process_images_in_batches(batch_size=50, checkpoint_path="checkpoint.pkl")
